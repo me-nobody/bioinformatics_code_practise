@@ -1,0 +1,43 @@
+---
+title: "find_installed_bioconductor_package"
+author: "https://support.bioconductor.org/p/110716/#110725"
+date: '2022-08-15'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## code
+
+This code finds out installed bioconductor packages
+```{r cars}
+library(dplyr)
+library(sessioninfo)
+df_installed <- as_tibble(installed.packages())
+head(df_installed)
+```
+```{r}
+# this will extract the Package column as a vector
+pkgs <- pull(df_installed,Package)
+```
+Now we will apply utils::packageDescription to find description files of the installed packages
+```{r}
+pkg_details <- lapply(pkgs,utils::packageDescription)
+head(pkg_details, n=1)
+```
+```{r}
+# code to extract package source from sessioninfo
+sources<-vapply(pkg_details,sessioninfo:::pkg_source,character(1))
+sources[1:10]
+```
+```{r}
+# combine and filter for BioC only
+bioc_pkgs <- data_frame(pkgs, sources) %>%
+    filter(sources == "Bioconductor")
+head(bioc_pkgs)
+
+```
+
+
