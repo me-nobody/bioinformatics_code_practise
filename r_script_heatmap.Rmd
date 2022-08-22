@@ -10,10 +10,19 @@ knitr::opts_chunk$set(echo = TRUE)
 ```
 
 ## create a heatmap in R
+```{r}
+# create a matrix for the heatmap
+study<-as.matrix(study)
+```
 
 
 ```{r heatmap, echo=FALSE}
-summary(cars)
+library(pheatmap)
+# create a annotation
+# 
+annotation_col <- data.frame(study=colnames(study))
+# column names of matrix should exactly match row names of annotation_col
+rownames(annotation_col) <- colnames(study)
 ```
 
 ## Including Plots
@@ -21,7 +30,40 @@ summary(cars)
 You can also embed plots, for example:
 
 ```{r pressure, echo=FALSE}
-plot(pressure)
+pheatmap(study,show_rownames = FALSE, show_colnames= FALSE,
+         annotation_col = annotation_col,
+         clustering_method = "ward.D2",
+         clustering_distance_cols = "euclidean")
+```
+## Now we shall get clusters from the heatmap
+
+```{r cuttree, echo = FALSE}
+dist_data <- dist(filtered_data, method ="euclidean")
+ hcl <- hclust(dist_data,method = "ward.D2")
+ plot(hcl,labels = FALSE,hang = -1)
+ # k determines the number of partitions done by rect.hclust
+ rect.hclust(hcl, k=8)
+```
+## we have visually seen that the clustermap can be logically cut into 8 groups. Now we will use cutree to get clusters
+
+```{r cuttree, echo = FALSE}
+# cut tree so that there are 8  clusters
+clu.k8 <- cutree(hcl, k =8)
+table(clu.k8)
+```
+## Use K-means to form clusters
+
+```{r}
+set.seed(101)
+# in k-means, the matrix is calculated by the samples, hence transpose the matrix
+kclu <- kmeans(t(study),centers = 5)
+# number of data points in each cluster
+table(kclu$cluster)
+kclu_df <- data.frame(cluster = c("clust_1","clust_2","clust_3","clust_4","clust_5"),
+                        num_cluster = kclu$cluster)
+table(kclu_df)
+
 ```
 
-Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.
+
+
