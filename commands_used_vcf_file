@@ -1,0 +1,135 @@
+# script to split samples from a VCF file
+#!/usr/bin/bash
+echo $PATH|sed 's/:/\n/g'
+echo script to split samples 
+for sample in `bcftools query -l trios.vcf`;
+do
+   bcftools view -c1 -s $sample  -o ${sample}.vcf trios.vcf
+   echo $sample done
+done
+
+# command to search linux PATH
+echo $PATH| sed 's/:/\n/g'
+
+# list only directories
+ls -d */
+
+#https://samtools.github.io/bcftools/howtos/query.html
+#https://gatk.broadinstitute.org/hc/en-us/articles/360035531692-VCF-Variant-Call-Format
+
+# find number of samples
+bcftools query -l <filename.vcf> | wc -l
+
+# find the number of reads enlisted
+bcftools query -f '%CHROM %POS %REF %ALT \n' <filename.vcf> | wc -l
+
+# create a gzipped VCF file for indexing else it won't index
+bcftools view -I <filename.vcf> -Oz -o <filname.vcf.gz>
+
+# index the vcf file
+bcftools index <filename.vcf.gz> 
+
+# sort the vcf file
+bcftools sort -Oz <filename.vcf.gz> -o <sorted_filename.vcf.gz> &
+
+#get the list of all the variations
+bcftools query -f '%CHROM %POS %REF %ALT %QUAL %AC %AF %AN [\t %GT]\n' <sorted_filename.vcf.gz> >variation_list
+
+#filter vcf file for SNPS
+bcftools filter -i 'STRLEN(REF)==1 & STRLEN(ALT)==STRLEN(REF) & FILTER=="PASS"' trios.vcf>passed_snps.vcf
+
+# important
+# retreive vcf data using bcftools query
+# -i option to filter data based on string given. i stands for include
+# -f option to format the output
+# -H include header
+# specify the first entry by {0} as AF has multiple entries
+bcftools query -i 'STRLEN(REF)==1 & STRLEN(ALT)==STRLEN(REF) & FILTER=="PASS"' -f '%CHROM %POS %REF %ALT %QUAL %AC %AF{0} %AN [\t %GT\t%DP]\n' trios.vcf>passed_snps.vcf
+
+# create file headers and output to file
+grep "#CHROM" trios.vcf>dummy1
+
+# after edits to join header with variation list
+cat dummy1 variation_list>variation_list_headers
+
+
+# IMPORTANT
+# COMMAND TO FILTER VCF FILE WITH BCFTOOLS
+bcftools filter -i 'QUAL>=30 && FILTER=="PASS" && INFO/DP>30 && FORMAT/GT!="./." && FORMAT/DP>=20 && FORMAT/GQ>20' -O z -o cleaned_filename.vcf filename.vcf.gz 
+
+
+# command to change sample names in VCF file
+# sample named in samples.txt file as old_name space new_name\n
+bcftools reheader -s samples.txt  -o renamed_trios.vcf.bgz cleaned_trios.vcf.bgz
+
+
+# command to calculate denovo mutations in the child using bcftools. first rename the samples as proband(child),father, mother using
+# bcftools reheader. then run bcftools with --use-NAIVE model. Ideally the FORMAT section should have a parameter QS which is calculated
+# by bcftools mpileup with the bam files. In its absence use the naive model
+bcftools +trio-dnm2 --use-NAIVE -p proband,father,mother -Oz -o outputfile.vcf.bgz inputfile.vcf.bgz
+
+
+# command to collect only the denovo mutations from denovo annotated file
+bcftools filter -i 'FORMAT/DNM==1' -o denovo.vcf denovo_annotated.vcf.bgz
+
+# command to summarize the statistics of VCF file
+bcftools stats denovo.vcf.bgz>denovo_stats.txt
+
+# after finding the denovo mutations the VCF file was split up into individual samples to obtain the proband for annotation analysis
+
+
+# create a config file to run with VEP. the base parameters can  be obtained by running VEP in verbose mode
+# commands used for VCF file
+./vep --cache -v --format vcf --species homo_sapiens --stats_file denovo_stats --sift b --polyphen b -i denovo.vcf -o denovo_vep
+
+# command to remove lines containing 'intron_variant'
+grep -v "intron_variant" file_name
+
+# command to check if the 7th field contains the text 57576 and print fields 1,4,7 and 14
+gawk '$7 ~/57576/{print $1," ",$4," ",$7," ",$14}'
+
+# command to print only from the variant lines bypassing the header and print fields 1,4,7 and 14
+gawk '$1 !~/^#/{print $1," ",$4," ",$7," ",$14}' file_name
+
+# command used to find the different consequences of a VEP output. uniq is -u option and uniq works only on sorted data. sort -u obtains that
+gawk '$1 !~/^#/{print $7}' denovo_vep|sort -u
+
+# command to extract text where both SIFT and PolyPhen exist in the file. the info is in column 14
+gawk '/PolyPhen=probably_damaging/ && /SIFT=deleterious/{print $14}' filename
+
+# maftools will operate only with VEP analyzed output. hence the VCF file should have been generated from VEP or Annovar
+
+# steps to use maftools. maftools needs vep, tabix, samtools, reference sequence etc. in blue bear all these are loaded as modules. the steps are
+#module purge;module load bear-apps/2019a/live; module load tabix/0.2.6-GCCcore-8.2.0;module load SAMtools/1.11-GCC-10.2.0
+
+
+# all modules have to match their versions. for running vcf2maf the following combination needs to be loaded
+module load tabix/0.2.6-GCCcore-8.2.0
+
+
+module load SAMtools/1.9-GCC-8.2.0-2.31.1
+
+# try to use --input-vep for vcf2maf
+
+
+# the trick to using vcf2maf is that we have to edit the script itself to remove unnecessary vep commands. af_esp had to be deleted from the file, else vep was not running. then assembly was specified as GRCh38 within the vcf2maf perl script. likewise, to specify vep parameters, we have to edit the vcf2maf file. then it worked with the sample.vcf with the following command
+perl ~/vcf2maf-1.6.21/vcf2maf.pl --vep-path ~/vep/ensembl-vep/ --input-vcf sample.vcf --output-maf sample.maf --ref-fasta ~/.vep/homo_sapiens/Homo_sapiens.GRCh38.dna_sm.primary_assembly.fa --vep-overwrite
+
+
+
+ERROR: your VCF uses CR line breaks, which we can't support. Please use LF or CRLF.
+solution
+perl -lne 's/\r//; print "$_";' F545_altref_vep.vcf > F545_altref_vep_fixed.vcf
+or
+sed 's/\r/\n/' F545_altref_vep.vcf > F545_altref_vep_fixed.vcf
+or
+dos2unix -n -ascii Old.vcf New.vcf
+
+
+
+
+
+
+
+
+
